@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BookMyGlow</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+    .hidden { display: none; }
+    .btn { padding: 8px 16px; margin: 4px; cursor: pointer; }
+    .form-group { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h1>BookMyGlow</h1>
+  <button id="loginBtn" class="btn">Login / Register</button>
+
+  <div id="roleSelection" class="hidden">
+    <p>Select Role:</p>
+    <button id="customerRole" class="btn">Customer</button>
+    <button id="salonRole" class="btn">Salon / Beauty Parlour</button>
+  </div>
+
+  <!-- Customer Form -->
+  <div id="customerForm" class="hidden">
+    <h2>Customer Registration</h2>
+    <div class="form-group"><input type="text" id="custName" placeholder="Name" /></div>
+    <div class="form-group"><input type="email" id="custEmail" placeholder="Email" /></div>
+    <div class="form-group"><input type="tel" id="custMobile" placeholder="Mobile Number" /></div>
+    <button id="custSubmit" class="btn">Submit</button>
+  </div>
+
+  <!-- Salon Form -->
+  <div id="salonForm" class="hidden">
+    <h2>Salon / Parlour Registration</h2>
+    <div class="form-group"><input type="text" id="salonName" placeholder="Salon Name" /></div>
+    <div class="form-group"><input type="tel" id="salonMobile" placeholder="Mobile Number" /></div>
+    <div class="form-group"><input type="text" id="salonAddress" placeholder="Shop Address" /></div>
+    <div class="form-group"><input type="url" id="mapLink" placeholder="Google Map Link" /></div>
+    <button id="salonSubmit" class="btn">Submit</button>
+  </div>
+
+  <!-- OTP Verification -->
+  <div id="otpSection" class="hidden">
+    <h2>Enter OTP</h2>
+    <div class="form-group"><input type="text" id="otpInput" placeholder="6-digit OTP" /></div>
+    <button id="otpSubmit" class="btn">Verify</button>
+  </div>
+
+  <!-- Nearby Salons -->
+  <div id="nearbySection" class="hidden">
+    <h2>Nearby Salons (within 5km)</h2>
+    <ul id="salonList"></ul>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:5000/api';
+
+    const loginBtn = document.getElementById('loginBtn');
+    const roleSelection = document.getElementById('roleSelection');
+    const customerRole = document.getElementById('customerRole');
+    const salonRole = document.getElementById('salonRole');
+
+    const customerForm = document.getElementById('customerForm');
+    const salonForm = document.getElementById('salonForm');
+    const otpSection = document.getElementById('otpSection');
+    const nearbySection = document.getElementById('nearbySection');
+
+    loginBtn.addEventListener('click', () => {
+      roleSelection.classList.toggle('hidden');
+    });
+
+    customerRole.addEventListener('click', () => {
+      roleSelection.classList.add('hidden');
+      customerForm.classList.remove('hidden');
+    });
+
+    salonRole.addEventListener('click', () => {
+      roleSelection.classList.add('hidden');
+      salonForm.classList.remove('hidden');
+    });
+
+    // Customer submit
+    document.getElementById('custSubmit').addEventListener('click', async () => {
+      const name = document.getElementById('custName').value.trim();
+      const email = document.getElementById('custEmail').value.trim();
+      const mobile = document.getElementById('custMobile').value.trim();
+      if (!name || !email || !mobile) return alert('Fill all fields');
+
+      try {
+        const res = await fetch(`${API_BASE}/customer/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, mobile })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Error');
+        alert('Customer registered successfully!');
+        customerForm.classList.add('hidden');
+        // Ask location permission
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(async (pos) => {
+            const { latitude: lat, longitude: lng } = pos.coords;
+            const nearRes = await fetch(`${API_BASE}/salon/nearby?lat=${lat}&lng=${lng}&radius=5000`);
+            const nearData = await nearRes.json();
+            if (nearRes.ok) {
+              document.getElementById('nearbySection').classList.remove('hidden');
+              const list = document.getElementById('salonList');
+              list.innerHTML = '';
+              nearData.salons.forEach((s) => {
+                const li = document.createElement('li');
+                li.textContent = `${s.name} - ${s.address}`;
+                list.appendChild(li);
+              });
+            }
+          }, () => alert('Location access denied'));
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    // Salon submit
+    let currentSalonMobile = '';
+    document.getElementById('salonSubmit').addEventListener('click', async () => {
+      const name = document.getElementById('salonName').value.trim();
+      const mobile = document.getElementById('salonMobile').value.trim();
+      const address = document.getElementById('salonAddress').value.trim();
+      const mapLink = document.getElementById('mapLink').value.trim();
+      if (!name || !mobile || !address || !mapLink) return alert('Fill all fields');
+
+      // Simple parsing lat/lng from google maps url (expects @lat,lng)
+      const match = mapLink.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (!match) return alert('Invalid map link');
+      const lat = match[1];
+      const lng = match[2];
+
+      try {
+        const res = await fetch(`${API_BASE}/salon/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, mobile, address, lat, lng })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Error');
+        alert(data.message || 'OTP sent');
+        currentSalonMobile = mobile;
+        salonForm.classList.add('hidden');
+        otpSection.classList.remove('hidden');
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    // OTP verify
+    document.getElementById('otpSubmit').addEventListener('click', async () => {
+      const otp = document.getElementById('otpInput').value.trim();
+      if (!otp) return alert('Enter OTP');
+      try {
+        const res = await fetch(`${API_BASE}/salon/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mobile: currentSalonMobile, otp })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Error');
+        alert('Salon verified successfully!');
+        otpSection.classList.add('hidden');
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  </script>
+</body>
+</html>
